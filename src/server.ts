@@ -1,14 +1,15 @@
 import mongoose from 'mongoose';
-import { createApp } from './app.ts';
+import { createApp } from './create-app.ts';
 import { env } from './config/env.ts';
 import { connectMongo } from './infra/mongo.ts';
-import { S3Storage } from './infra/storage.ts';
+import { createStorage } from './infra/storage.ts';
 import { logger } from './lib/logger.ts';
 
+/** Long-running process entry (Docker, `npm start`). Vercel uses src/index.ts instead. */
 async function main() {
   await connectMongo(env.MONGO_URI);
-  const storage = new S3Storage(env);
-  if (env.S3_AUTO_CREATE_BUCKET) await storage.ensureBucket();
+  const storage = createStorage(env);
+  if (env.S3_AUTO_CREATE_BUCKET) await storage.ensureBucket?.();
 
   const server = createApp({ storage }).listen(env.PORT, () =>
     logger.info({ port: env.PORT }, 'api listening'),

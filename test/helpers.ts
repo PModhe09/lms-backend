@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { createApp } from '../src/app.ts';
+import { createApp } from '../src/create-app.ts';
 import { InMemoryStorage } from '../src/infra/storage.ts';
 import type { Role } from '../src/domain/enums.ts';
 import { signSession, SESSION_COOKIE } from '../src/lib/session.ts';
