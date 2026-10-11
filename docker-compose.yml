@@ -41,6 +41,7 @@ services:
       MONGO_URI: mongodb://mongo:27017/lms?directConnection=true
       S3_ENDPOINT: http://storage:8333
     ports: ['4000:4000']
+    restart: on-failure
     depends_on:
       mongo: { condition: service_healthy }
       storage: { condition: service_healthy }
