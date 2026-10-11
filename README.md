@@ -25,6 +25,20 @@ docker compose up --build
 Open **http://localhost:3000**. Compose starts MongoDB (single-node replica set, needed for transactions),
 SeaweedFS (S3-compatible storage), the API on :4000, the web app on :3000, and seeds the accounts below.
 
+### Run for development (hot reload)
+
+```bash
+docker compose up -d mongo storage        # Mongo replica set + S3 storage only
+cp .env.example .env
+npm install
+npm run seed                              # demo accounts (idempotent)
+npm run dev                               # API on http://localhost:4000 (tsx watch)
+# in ../lms-frontend: cp .env.example .env.local && npm install && npm run dev   → http://localhost:3000
+```
+
+Mongo must be a replica set (payments run in transactions), which is why the compose service is used even in dev.
+`GET /api/healthz` should return `{"status":"ok","mongo":true}`.
+
 ## Demo accounts
 
 | Role | Email | Password | Lands on |
@@ -78,6 +92,54 @@ Browser ──► Next.js (Vercel) ──rewrite /api/*──► Express API ─
 - **Errors:** one envelope everywhere: `{ error: { code, message, details }, requestId }`. 400 schema, 401 not logged in, 403 wrong role, 404 not found/not yours, 409 state conflict, 422 business rule.
 - **API contract:** Zod schemas → OpenAPI 3.1 (`openapi.json`, also served at `/api/openapi.json`) → frontend types via `openapi-typescript`.
 
+## Data model
+
+Three collections ([`02-domain-model.md`](docs/design/02-domain-model.md)):
+
+```
+users ──1:N──► loans ──1:N──► payments
+```
+
+| Collection | Key fields | Indexes |
+|---|---|---|
+| `users` | `email` (unique), `passwordHash` (bcrypt, never returned), `role`, and for borrowers: `onboardingStage`, embedded `borrowerProfile` (name, PAN, DOB, `monthlySalaryPaise`, employment), `salarySlip` (pointer), `breResult` (passed, failures, rule version, facts, time) | `email` unique · PAN unique among BRE-passed profiles · `{role, onboardingStage, createdAt}` for Sales |
+| `loans` | `borrowerId`, `principalPaise`, `tenureDays`, `rateBps` (1200), `interestPaise`, `totalRepaymentPaise`, `amountPaidPaise`, `status`, slip snapshot, `rejectionReason`, `sanctionedAt/By`, `disbursedAt/By`, `closedAt`, `statusHistory[]` | `{status, createdAt}` per queue · `{borrowerId, createdAt}` · **partial unique `{borrowerId}` while APPLIED/SANCTIONED/DISBURSED** (one open loan) |
+| `payments` | `loanId`, `utr` (unique, uppercased), `amountPaise`, `paidAt`, `recordedBy` | `utr` unique · `{loanId, paidAt}` |
+
+- Borrower profile, slip and BRE result are embedded in the user (1:1, always read together). Loans and payments are separate collections because they grow and are queried on their own.
+- **Outstanding balance** = `totalRepaymentPaise − amountPaidPaise`, computed on read, never stored. `amountPaidPaise` is a running total written in the same transaction as each payment, so the Collection list needs no aggregation.
+- The slip is copied onto the loan at apply time, so a later re-upload does not change what a loan was approved on.
+
+## Loan lifecycle
+
+```
+APPLIED ──approve──► SANCTIONED ──disburse──► DISBURSED ──(paid in full)──► CLOSED
+   └──reject (reason)──► REJECTED
+```
+
+| From → To | Who | Guard |
+|---|---|---|
+| — → APPLIED | Borrower | BRE passed, slip uploaded, no open loan, ₹50,000–₹5,00,000, 30–365 days |
+| APPLIED → SANCTIONED | Sanction, Admin | still APPLIED (else 409) |
+| APPLIED → REJECTED | Sanction, Admin | reason 1–500 chars |
+| SANCTIONED → DISBURSED | Disbursement, Admin | still SANCTIONED (else 409) |
+| DISBURSED → CLOSED | System only | inside the payment transaction, when paid = total |
+
+REJECTED and CLOSED are terminal; the borrower can then apply again (and reappears as a Sales lead).
+The table is a constant in `src/domain/loan/transitions.ts`; every status write checks it and is a conditional update on the
+expected current status, so two people acting at once cannot both succeed.
+
+**Payment validations:** amount > 0 and ≤ outstanding (no overpayment, 422); date between the disbursal date and today in IST (422);
+UTR 6–30 letters/digits, unique across all payments, case-insensitive (409); loan must be DISBURSED (409). Payments are never edited or deleted.
+
+## Roles and access control
+
+- **Storage:** one `role` per user (`ADMIN`, `SALES`, `SANCTION`, `DISBURSEMENT`, `COLLECTION`, `BORROWER`), copied into the signed JWT (`{sub, role}`, HS256, 1 day).
+- **Permissions, not role names:** `src/domain/rbac.ts` maps each role to permissions (`SANCTION_DECIDE`, `COLLECTION_RECORD`, …). Admin holds every ops permission but not `BORROWER_PORTAL`.
+- **Backend:** `authenticate` (401) then `authorize(permission)` (403) mounted on each module's router; write actions add a stricter permission. Borrower data is filtered by owner in the query, so another user's loan is 404.
+- **Frontend:** `proxy.ts` verifies the JWT signature and redirects (borrower ↔ dashboard, executive on another module → `/403`); the sidebar and buttons come from the same permission map. This is for UX only; the API checks every request.
+- **Status codes:** 401 not logged in · 403 logged in but not allowed · 404 not yours / not found · 400 bad input · 422 business rule · 409 state conflict.
+
 ## Where salary slips are stored
 
 | | Files (PDF/JPG/PNG) | What MongoDB keeps |
@@ -110,16 +172,60 @@ Full detail: [`docs/design/04-api-contract.md`](docs/design/04-api-contract.md) 
 
 | Question | Decision |
 |---|---|
-| Where does the BRE run? | Server decides; client shows hints from the server's rule set. A rule the server does not check is not a rule. |
+| PAN regex | `^[A-Z]{5}[0-9]{4}[A-Z]$` after uppercasing: 5 letters, 4 digits, 1 letter. The 4th letter is the holder type (`P` = individual); a stricter `^[A-Z]{3}P[A-Z][0-9]{4}[A-Z]$` is one line in the rule data if the business wants individuals only. |
+| Where does the BRE run? | Server decides; client shows hints from the server's rule set. A rule the server does not check is not a rule, since anyone can call the API with curl. |
+| Age | Completed years on today's date in India (Asia/Kolkata), 23 and 50 inclusive. Someone turning 23 tomorrow fails today. |
 | Loans per borrower | One open loan (APPLIED/SANCTIONED/DISBURSED) at a time, enforced by a partial unique index. Reapply after REJECTED or CLOSED. |
 | Retry after BRE failure | Allowed; the latest decision (with rule version and failures) is stored so Sales can see why a lead is stuck. |
 | Partial payments | Yes, many per loan; no overpayment; date between disbursement and today (IST); UTR unique across all payments. |
+| Outstanding balance | Total repayment − amount paid, computed on read; the loan closes automatically when it reaches 0. |
+| Interest rounding | Integer paise, simple interest rounded half-up once at apply and stored on the loan, so the contract never changes later. |
 | Staff accounts | Seed only; signup ignores any `role` field. |
 | 401 vs 403 vs 404 | 401 not logged in, 403 role lacks permission, 404 for someone else's loan (no ID probing). |
 
-## Configuration
+## Project structure
 
-See [`.env.example`](.env.example). The process validates its environment with Zod at boot and refuses to start on a missing or malformed value.
+```
+src/
+  domain/          pure business logic, no Express/Mongoose: BRE rules + evaluator, Money + interest,
+                   loan transition table, permission map, error types
+  modules/         one folder per feature: auth, borrower, bre, ops (sales/sanction/disbursement/collection),
+                   loans, users — each with routes → controller → service → repository (+ Zod schemas, OpenAPI)
+  middleware/      authenticate, authorize, upload (multer, memory), error handler, request logger
+  infra/           Mongoose models, Mongo connection + transactions, storage adapters (S3, Vercel Blob, in-memory)
+  config/env.ts    environment parsed with Zod at boot
+  create-app.ts    composition root (wires repositories → services → controllers → routers)
+  server.ts        long-running entry (Docker)      index.ts   Vercel entry
+test/              Vitest + supertest on an in-memory Mongo replica set
+scripts/           OpenAPI generation, live acceptance run, test-data cleanup
+docs/design/       requirements, HLD, domain model, state machine, API contract, RBAC, ADRs
+```
+
+## Environment variables
+
+| Variable | Example | Notes |
+|---|---|---|
+| `MONGO_URI` | `mongodb://localhost:27017/lms?directConnection=true` | Must be a replica set (Atlas is by default) |
+| `JWT_SECRET` | 48 random chars (`openssl rand -base64 48`) | Same value in the frontend (route guard) |
+| `JWT_EXPIRES_IN_SECONDS` | `86400` | Session length |
+| `COOKIE_SECURE` | `false` locally, `true` on HTTPS | |
+| `STORAGE_DRIVER` | `s3` or `blob` | `blob` = private Vercel Blob (live) |
+| `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_FORCE_PATH_STYLE`, `S3_AUTO_CREATE_BUCKET` | see `.env.example` | Required when `STORAGE_DRIVER=s3` |
+| `PORT`, `LOG_LEVEL`, `NODE_ENV` | `4000`, `info` | |
+
+Full list with comments: [`.env.example`](.env.example). The API parses its environment with Zod at boot and refuses to start
+on a missing or malformed value. `npm run dev`, `npm run seed` and `npm start` load `.env` automatically.
+
+Frontend (`lms-frontend/.env.example`): `API_ORIGIN` (where `/api/*` is forwarded) and `JWT_SECRET`.
+
+## Security
+
+- Passwords: bcrypt, cost 12; never returned or logged. Login gives the same 401 for unknown email and wrong password, and takes the same time.
+- Session: JWT in an `HttpOnly`, `Secure` (live), `SameSite=Lax` cookie, so page scripts cannot read it. Signature verified on every API request and in the frontend guard.
+- Input: every body and query is parsed with Zod; unknown fields are dropped (a `role` or `totalRepaymentPaise` sent by a client is ignored).
+- Uploads: type from magic bytes, 5 MB cap, server-chosen keys, private storage, 5-minute view links.
+- Headers via `helmet`; JSON body limit 100 KB; logs record only request id, method, URL and status (no headers, cookies or tokens).
+- Secrets: `.env` files are git-ignored; a gitleaks pre-commit hook blocks committed secrets.
 
 ## Deployment (live)
 
@@ -144,9 +250,17 @@ How larger lenders do it, and why it was left out here. The design leaves a hook
 |---|---|
 | Refresh tokens + revocation (`tokenVersion`) | No role-change UI; 1-day token is fine for a demo |
 | Staff SSO + MFA (Okta/Google) | Evaluators need seeded password logins |
+| Login rate limiting / lockout | Needs a shared store (e.g. Redis) across serverless instances; Vercel Firewall rate rules are the next step |
 | `Idempotency-Key` header | Unique UTR and the one-open-loan index already make retries safe |
 | Payment reversals | Changes the state machine (CLOSED → DISBURSED); ledger is already append-only |
 | PAN/KYC verification, credit bureau | Paid APIs; adapter sketched in [ADR 0006](docs/design/adr/0006-kyc-provider-adapter.md) |
 | BRE rules in DB, decision log, cool-off, shadow testing | Rules are already data with a version; moving them to a collection is mechanical |
 | Audit log + transactional outbox (SMS/email) | `statusHistory` covers who/when; design in [ADR 0005](docs/design/adr/0005-audit-log-and-outbox.md) |
 | EMI schedules, penalties, password reset, admin user management | Not in the brief |
+
+## Known limitations
+
+- A role change takes effect when the user's token expires (up to 1 day); there is no role-change UI, and `tokenVersion` is the planned fix.
+- Only INR. Amounts carry `currency: 'INR'` so a second currency would not be ambiguous.
+- Slip files from deleted test accounts are not garbage-collected from storage.
+- The live demo database contains the six demo accounts and one pending application ("Riya Demo") to try Sanction with.
