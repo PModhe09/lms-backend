@@ -16,4 +16,9 @@ export default tseslint.config(
       'no-console': 'error',
     },
   },
+  {
+    // Operator CLI scripts: printing is their output, and they read loosely typed JSON from a live API.
+    files: ['scripts/**'],
+    rules: { 'no-console': 'off', '@typescript-eslint/no-explicit-any': 'off' },
+  },
 );

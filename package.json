@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "openapi": "tsx scripts/generate-openapi.ts",
-    "seed": "tsx src/seed-cli.ts"
+    "seed": "tsx src/seed-cli.ts",
+    "smoke:live": "tsx scripts/smoke-live.ts"
   },
   "license": "UNLICENSED",
   "description": "Loan Management System API (Express + TypeScript + MongoDB)",

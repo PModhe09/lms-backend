@@ -5,6 +5,9 @@ Express + TypeScript + MongoDB API for a small-ticket personal loan product: a *
 **operations dashboard** (Sales, Sanction, Disbursement, Collection; Admin sees all) with RBAC enforced on every route.
 
 **Live:** https://lms-web-five-nu.vercel.app (API: https://lms-api-black.vercel.app/api/healthz) — log in with the demo accounts below.
+**Demo video:** _link to be added_
+
+**Stack:** Next.js (App Router) + TypeScript + Tailwind + shadcn/ui · Express 5 + TypeScript · MongoDB + Mongoose · JWT (httpOnly cookie) + bcrypt · Zod · Vitest, supertest, Playwright · Docker
 
 Frontend: [lms-frontend](https://github.com/PModhe09/lms-frontend) · Design docs: [`docs/design`](docs/design/README.md)
 
@@ -47,6 +50,15 @@ simple-interest rounding, every state-machine transition × actor, an **RBAC mat
 role → 401/403/allowed), IDOR (another borrower's loan → 404), and real races: concurrent applies (one 201,
 one 409), approve vs reject (one wins), two payments that together would overpay (one 201, one 422).
 The frontend repo has Playwright E2E for the full lifecycle in a browser.
+
+**Live acceptance run** — 65 HTTP checks against the deployed site, through the same `/api` path a browser uses:
+every BRE boundary, upload type/size rules, apply limits and races, sanction/disbursement/collection rules
+including concurrent payments, the RBAC matrix for all six seeded roles, and the web route guards.
+
+```bash
+BASE_URL=https://lms-web-five-nu.vercel.app npm run smoke:live    # 65/65 pass
+MONGO_URI=... npx tsx scripts/smoke-cleanup.ts                     # removes the test borrowers it created
+```
 
 ## Architecture
 
