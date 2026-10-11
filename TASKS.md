@@ -55,7 +55,7 @@ test/                    vitest + supertest + mongodb-memory-server (replica set
 - [x] a7. `authenticate`, `authorize(...perms)`, `validate(schema)` middleware.
 - [x] a8. `scripts/seed.ts`: upsert the 6 users from `05-rbac.md`, idempotent.
 - [x] a9. Dockerfile (multi-stage, non-root, `HEALTHCHECK` on `/api/healthz`). `docker-compose.yml`: `mongo` (rs0 + init), `storage` (SeaweedFS S3, see ADR 0002 amendment), `api`, `seed` (one-shot).
-- [ ] a11. Add `web` service to compose (build context `../lms-frontend`) once the frontend Dockerfile exists.
+- [x] a11. Add `web` service to compose (build context `../lms-frontend`) once the frontend Dockerfile exists.
 - [x] a10. OpenAPI registry + `npm run openapi` writes `openapi.json`. Serve it at `GET /api/openapi.json`.
 
 **AC**

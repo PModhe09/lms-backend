@@ -1,5 +1,6 @@
-# Local stack: Mongo (single-node replica set, needed for transactions), S3-compatible storage, API, seed.
-# Usage: cp .env.example .env && docker compose up --build
+# Local stack: Mongo (single-node replica set, needed for transactions), S3-compatible storage, API, seed, web.
+# Expects ../lms-frontend checked out next to this repo.
+# Usage: cp .env.example .env && docker compose up --build   →  http://localhost:3000
 name: lms
 
 services:
@@ -53,6 +54,18 @@ services:
     depends_on:
       mongo: { condition: service_healthy }
     restart: 'no'
+
+  web:
+    build:
+      context: ../lms-frontend
+      args:
+        API_ORIGIN: http://api:4000
+    environment:
+      API_ORIGIN: http://api:4000 # server-side fetches; the rewrite target is baked in at build time
+      JWT_SECRET: ${JWT_SECRET}
+    ports: ['3000:3000']
+    depends_on:
+      api: { condition: service_healthy }
 
 configs:
   s3-identities:
