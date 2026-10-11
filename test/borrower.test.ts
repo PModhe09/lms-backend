@@ -66,6 +66,34 @@ describe('personal details + BRE', () => {
     expect(res.body.error.code).toBe('PAN_TAKEN');
   });
 
+  it('a failed eligibility check does not claim the PAN', async () => {
+    // Rejected attempt with a PAN (here an invalid one, plus an underage DOB).
+    await api()
+      .put('/api/borrower/profile')
+      .set('Cookie', await newBorrower())
+      .send({ ...GOOD_PROFILE, pan: 'ABCD1234F', dob: '2012-01-01' })
+      .expect(422);
+    // Another account sending the same invalid PAN gets the rule failure, not PAN_TAKEN.
+    const again = await api()
+      .put('/api/borrower/profile')
+      .set('Cookie', await newBorrower())
+      .send({ ...GOOD_PROFILE, pan: 'ABCD1234F' })
+      .expect(422);
+    expect(again.body.error.details.map((d: { rule: string }) => d.rule)).toEqual(['PAN']);
+
+    // A rejected applicant cannot block the real owner of a valid PAN either.
+    await api()
+      .put('/api/borrower/profile')
+      .set('Cookie', await newBorrower())
+      .send({ ...GOOD_PROFILE, monthlySalaryPaise: 100 })
+      .expect(422);
+    await api()
+      .put('/api/borrower/profile')
+      .set('Cookie', await newBorrower())
+      .send(GOOD_PROFILE)
+      .expect(200);
+  });
+
   it('rejects malformed input with 400', async () => {
     await api()
       .put('/api/borrower/profile')

@@ -41,7 +41,7 @@ Public signup always creates a `BORROWER`; staff accounts come only from the see
 ## Tests
 
 ```bash
-npm test          # 343 tests: domain units + HTTP integration on an in-memory Mongo replica set (no Docker)
+npm test          # 344 tests: domain units + HTTP integration on an in-memory Mongo replica set (no Docker)
 npm run lint && npm run typecheck
 ```
 

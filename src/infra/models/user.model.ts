@@ -52,7 +52,12 @@ const UserSchema = new Schema(
 );
 
 UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ 'borrowerProfile.pan': 1 }, { unique: true, sparse: true });
+// One PAN per account, but only once eligibility passed: a rejected attempt (possibly a typo) must not
+// claim a PAN and block its real owner.
+UserSchema.index(
+  { 'borrowerProfile.pan': 1 },
+  { unique: true, name: 'unique_verified_pan', partialFilterExpression: { 'breResult.passed': true } },
+);
 UserSchema.index({ role: 1, onboardingStage: 1, createdAt: -1 });
 
 export type User = InferSchemaType<typeof UserSchema>;

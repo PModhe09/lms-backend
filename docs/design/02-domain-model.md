@@ -128,7 +128,7 @@ This is the snapshot pattern: a business record freezes the data it was based on
   A personal loan should only go to an individual, so a strict check is `^[A-Z]{3}P[A-Z][0-9]{4}[A-Z]$`.
   The spec says "valid PAN format", so the BRE uses the general regex. The strict variant is one line in the
   rule list if the business asks for it. We mention it in the README to show we know.
-- Sparse unique index on `borrowerProfile.pan`: one PAN, one borrower account.
+- Unique index on `borrowerProfile.pan`, partial on `breResult.passed: true`: one PAN, one eligible borrower account. A rejected attempt (often a typo) does not claim the PAN, so it cannot block the real owner.
 
 ### BRE decision record
 ```ts
