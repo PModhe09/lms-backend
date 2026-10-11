@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import { deriveFacts, evaluate } from '../../domain/bre/evaluate.ts';
 import { BRE_RULES } from '../../domain/bre/rules.ts';
 import { OnboardingStage } from '../../domain/enums.ts';
@@ -9,7 +10,7 @@ import type { UserDocument } from '../../infra/models/user.model.ts';
 import { isDuplicateKeyError } from '../../infra/mongo.ts';
 import type { ObjectStorage } from '../../infra/storage.ts';
 import { inTransaction } from '../../infra/transaction.ts';
-import { sniffSlipType } from '../../lib/file-type.ts';
+import { sniffSlipType, type SlipMime } from '../../lib/file-type.ts';
 import { istDate, type Clock } from '../../lib/time.ts';
 import { toLoanDto, toPaymentDto, type LoanDto } from '../loans/loan.dto.ts';
 import type { LoanRepository } from '../loans/loan.repository.ts';
@@ -26,6 +27,15 @@ const UPLOAD_STAGES: readonly OnboardingStage[] = [
   OnboardingStage.DETAILS_SUBMITTED,
   OnboardingStage.SLIP_UPLOADED,
 ];
+
+export const SLIP_MAX_BYTES = 5 * 1024 * 1024;
+export const SLIP_CONTENT_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+const DIRECT_UPLOAD_TTL_SECONDS = 300;
+/** Keys the client may upload to: its own folder, a UUID name, an allowed extension. */
+const slipKeyPattern = (userId: string) =>
+  new RegExp(
+    `^slips/${userId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(pdf|jpg|jpeg|png)$`,
+  );
 
 export function toProfileDto(user: UserDocument): ProfileDto {
   const p = user.borrowerProfile;
@@ -122,8 +132,7 @@ export class BorrowerService {
     return toProfileDto(saved);
   }
 
-  async uploadSlip(userId: string, file: Express.Multer.File | undefined): Promise<ProfileDto> {
-    if (!file) throw new BusinessRuleError('INVALID_FILE', 'Attach a file in the "file" field');
+  private async assertCanUpload(userId: string): Promise<void> {
     const user = await this.borrower(userId);
     if (!UPLOAD_STAGES.includes(user.onboardingStage ?? OnboardingStage.REGISTERED)) {
       throw new ConflictError(
@@ -131,17 +140,80 @@ export class BorrowerService {
         'Submit eligible personal details before uploading a salary slip',
       );
     }
+  }
+
+  /** Upload through the API (multipart). Used locally and wherever the platform allows 5 MB request bodies. */
+  async uploadSlip(userId: string, file: Express.Multer.File | undefined): Promise<ProfileDto> {
+    if (!file) throw new BusinessRuleError('INVALID_FILE', 'Attach a file in the "file" field');
+    await this.assertCanUpload(userId);
     const type = sniffSlipType(file.buffer);
     if (!type) throw new BusinessRuleError('INVALID_FILE', 'Only PDF, JPG or PNG files are accepted');
 
     // Server-chosen key: the client's file name never becomes a path.
     const key = `slips/${userId}/${randomUUID()}.${type.ext}`;
     await this.storage.put(key, file.buffer, type.mime);
+    return this.recordSlip(userId, key, type.mime, file.size, file.originalname);
+  }
+
+  /** Tells the client whether to upload straight to storage, and the limits it must respect. */
+  uploadOptions(userId: string) {
+    return {
+      mode: this.storage.directUpload ? ('direct' as const) : ('server' as const),
+      maxBytes: SLIP_MAX_BYTES,
+      contentTypes: SLIP_CONTENT_TYPES,
+      keyPrefix: `slips/${userId}/`,
+    };
+  }
+
+  /**
+   * Answers the storage SDK's presign request for a browser-to-storage upload. The URL is scoped to one
+   * pathname in the caller's own folder, expires in 5 minutes, and is capped at 5 MB and the allowed types.
+   */
+  async presignSlipUpload(userId: string, body: unknown, request: IncomingMessage): Promise<unknown> {
+    if (!this.storage.directUpload) {
+      throw new ConflictError(
+        'DIRECT_UPLOAD_UNAVAILABLE',
+        'Upload the file to /borrower/salary-slip instead',
+      );
+    }
+    await this.assertCanUpload(userId);
+    const pattern = slipKeyPattern(userId);
+    return this.storage.directUpload(body, request, {
+      authorize: (pathname) => {
+        if (!pattern.test(pathname)) throw new BusinessRuleError('INVALID_FILE', 'Upload path not allowed');
+      },
+      maxBytes: SLIP_MAX_BYTES,
+      contentTypes: SLIP_CONTENT_TYPES,
+      ttlSeconds: DIRECT_UPLOAD_TTL_SECONDS,
+    });
+  }
+
+  /**
+   * After a direct upload: the server reads what actually landed in storage and applies the same checks
+   * as the multipart path (size, magic bytes). A file that fails is deleted.
+   */
+  async confirmSlipUpload(userId: string, key: string, originalName: string): Promise<ProfileDto> {
+    if (!slipKeyPattern(userId).test(key)) throw new NotFoundError('Upload not found');
+    await this.assertCanUpload(userId);
+    const info = await this.storage.inspect(key, 16);
+    if (!info) throw new NotFoundError('Upload not found');
+    const type = sniffSlipType(info.head);
+    if (!type || info.size > SLIP_MAX_BYTES) {
+      await this.storage.remove(key);
+      throw new BusinessRuleError(
+        'INVALID_FILE',
+        type ? 'File is larger than 5 MB' : 'Only PDF, JPG or PNG files are accepted',
+      );
+    }
+    return this.recordSlip(userId, key, type.mime, info.size, originalName);
+  }
+
+  private async recordSlip(userId: string, key: string, mime: SlipMime, size: number, originalName: string) {
     const saved = await this.users.saveSalarySlip(userId, {
       key,
-      mime: type.mime,
-      size: file.size,
-      originalName: file.originalname.slice(0, 200),
+      mime,
+      size,
+      originalName: originalName.slice(0, 200) || 'salary-slip',
       uploadedAt: this.clock(),
     });
     return toProfileDto(saved);

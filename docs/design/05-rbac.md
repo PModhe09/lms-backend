@@ -44,8 +44,8 @@ requestId → helmet → json(limit 100kb) → cookieParser
   → router
      → authenticate          401 if no/invalid/expired token; sets req.user = {id, role}
      → authorize(...perms)   403 if role lacks ANY listed permission
-     → validate(zodSchema)   400 on bad body/query/params
-     → controller → service → repository
+     → controller            parses body/query with Zod (400 on mismatch), so it gets typed input
+     → service → repository
   → errorHandler             maps AppError subclasses to status + envelope
 ```
 
@@ -54,7 +54,7 @@ Applied at router level, so a new route under `/ops/sanction` cannot forget the 
 
 ```ts
 sanctionRouter.use(authenticate, authorize(Permission.SANCTION_READ));
-sanctionRouter.post('/loans/:id/approve', authorize(Permission.SANCTION_DECIDE), validate(...), controller.approve);
+sanctionRouter.post('/loans/:id/approve', authorize(Permission.SANCTION_DECIDE), controller.approve);
 ```
 
 ### Ownership is not RBAC
@@ -65,7 +65,7 @@ so a borrower cannot probe which loan IDs exist. Forgetting this check is IDOR, 
 
 ## Frontend enforcement (UX layer, not security)
 
-1. `middleware.ts` (Next.js edge) reads the cookie, verifies the JWT signature with `jose`, and redirects:
+1. `src/proxy.ts` (Next.js 16's name for `middleware.ts`, Node runtime) reads the cookie, verifies the JWT signature with `jose`, and redirects:
    - no token → `/login`
    - BORROWER on `/dashboard/*` → `/apply`
    - executive on a module it lacks → `/dashboard` (which shows only allowed modules), or `/403`
@@ -73,7 +73,8 @@ so a borrower cannot probe which loan IDs exist. Forgetting this check is IDOR, 
 3. Buttons for actions the user lacks are not rendered.
 
 None of this is trusted. The spec's line "hiding a menu item is not enough" is exactly why every
-API route re-checks. The `rbac-auditor` agent proves it by calling every ops route with every role's token.
+API route re-checks. `test/rbac-matrix.test.ts` proves it by calling every ops route with every role's token, and
+`scripts/smoke-live.ts` repeats the matrix against the deployed site with the six seeded logins.
 
 ## Seeded accounts
 

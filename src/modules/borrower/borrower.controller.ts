@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { parse } from '../../lib/parse.ts';
 import { parseObjectId } from '../shared/http.ts';
-import { ApplyBody, ProfileBody } from './borrower.schemas.ts';
+import { ApplyBody, ConfirmSlipBody, ProfileBody } from './borrower.schemas.ts';
 import type { BorrowerService } from './borrower.service.ts';
 
 export class BorrowerController {
@@ -17,6 +17,19 @@ export class BorrowerController {
 
   uploadSlip = async (req: Request, res: Response) => {
     res.json(await this.borrowers.uploadSlip(req.user!.id, req.file));
+  };
+
+  uploadOptions = (req: Request, res: Response) => {
+    res.json(this.borrowers.uploadOptions(req.user!.id));
+  };
+
+  presignSlip = async (req: Request, res: Response) => {
+    res.json(await this.borrowers.presignSlipUpload(req.user!.id, req.body, req));
+  };
+
+  confirmSlip = async (req: Request, res: Response) => {
+    const { key, originalName } = parse(ConfirmSlipBody, req.body);
+    res.json(await this.borrowers.confirmSlipUpload(req.user!.id, key, originalName));
   };
 
   apply = async (req: Request, res: Response) => {

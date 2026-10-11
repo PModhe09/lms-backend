@@ -13,6 +13,15 @@ export const requestLogger = pinoHttp({
     res.setHeader('X-Request-Id', id);
     return id;
   },
+  // Log only what helps debugging. Headers carry cookies, platform OIDC tokens and proxy signatures.
+  serializers: {
+    req: (req: { id: string; method: string; url: string }) => ({
+      id: req.id,
+      method: req.method,
+      url: req.url,
+    }),
+    res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+  },
   customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : 'info'),
   autoLogging: { ignore: (req) => req.url === '/api/healthz' },
 });

@@ -41,7 +41,7 @@ Public signup always creates a `BORROWER`; staff accounts come only from the see
 ## Tests
 
 ```bash
-npm test          # 344 tests: domain units + HTTP integration on an in-memory Mongo replica set (no Docker)
+npm test          # 354 tests: domain units + HTTP integration on an in-memory Mongo replica set (no Docker)
 npm run lint && npm run typecheck
 ```
 
@@ -51,12 +51,12 @@ role → 401/403/allowed), IDOR (another borrower's loan → 404), and real race
 one 409), approve vs reject (one wins), two payments that together would overpay (one 201, one 422).
 The frontend repo has Playwright E2E for the full lifecycle in a browser.
 
-**Live acceptance run** — 65 HTTP checks against the deployed site, through the same `/api` path a browser uses:
-every BRE boundary, upload type/size rules, apply limits and races, sanction/disbursement/collection rules
+**Live acceptance run** — 69 HTTP checks against the deployed site, through the same `/api` path a browser uses:
+every BRE boundary, upload type/size rules (including a 4.9 MB direct upload), apply limits and races, sanction/disbursement/collection rules
 including concurrent payments, the RBAC matrix for all six seeded roles, and the web route guards.
 
 ```bash
-BASE_URL=https://lms-web-five-nu.vercel.app npm run smoke:live    # 65/65 pass
+BASE_URL=https://lms-web-five-nu.vercel.app npm run smoke:live    # 69/69 pass
 MONGO_URI=... npx tsx scripts/smoke-cleanup.ts                     # removes the test borrowers it created
 ```
 
@@ -74,7 +74,7 @@ Browser ──► Next.js (Vercel) ──rewrite /api/*──► Express API ─
 - **Money:** integer paise + `currency: 'INR'` through a `Money` value object. SI = P × R × T / (365 × 100), computed once at apply, rounded half-up ([ADR 0003](docs/design/adr/0003-money-as-integer-paise.md)).
 - **Loan state machine:** `APPLIED → SANCTIONED | REJECTED → DISBURSED → CLOSED`, as a transition table. Status changes are conditional updates on the expected status (optimistic concurrency → 409). `CLOSED` is set only by the system inside the payment transaction.
 - **Payments:** append-only ledger with a unique UTR index. Payment insert + loan update + auto-close run in one Mongo transaction; concurrent payments are serialized by write conflicts and retried.
-- **Uploads:** multer in memory (5 MB cap) → magic-byte type check (the name and `Content-Type` are ignored) → private bucket under a server-chosen key. Staff view slips through 5-minute presigned URLs ([ADR 0002](docs/design/adr/0002-salary-slip-storage.md)).
+- **Uploads:** multer in memory (5 MB cap) → magic-byte type check (the name and `Content-Type` are ignored) → private bucket under a server-chosen key. Staff view slips through 5-minute presigned URLs. Where the host caps request bodies below 5 MB (Vercel: 4.5 MB), the browser uploads straight to the private store with a 5-minute presigned PUT (5 MB and type limits enforced by storage), and the API then checks the stored bytes before accepting them ([ADR 0002](docs/design/adr/0002-salary-slip-storage.md)).
 - **Errors:** one envelope everywhere: `{ error: { code, message, details }, requestId }`. 400 schema, 401 not logged in, 403 wrong role, 404 not found/not yours, 409 state conflict, 422 business rule.
 - **API contract:** Zod schemas → OpenAPI 3.1 (`openapi.json`, also served at `/api/openapi.json`) → frontend types via `openapi-typescript`.
 
@@ -85,7 +85,7 @@ Browser ──► Next.js (Vercel) ──rewrite /api/*──► Express API ─
 | POST | `/api/auth/signup`, `/api/auth/login`, `/api/auth/logout` · GET `/api/auth/me` | public / any |
 | GET | `/api/bre/rules` | borrower |
 | GET/PUT | `/api/borrower/profile` | borrower (PUT runs the BRE) |
-| POST | `/api/borrower/salary-slip` (multipart `file`) | borrower |
+| POST | `/api/borrower/salary-slip` (multipart `file`) · GET `/upload-options` · POST `/presign` · `/confirm` (direct upload) | borrower |
 | GET/POST | `/api/borrower/loans` · GET `/api/borrower/loans/:id` | borrower (own loans only) |
 | GET | `/api/ops/sales/leads?stage=` | Sales, Admin |
 | GET | `/api/ops/sanction/loans` · `/:id/salary-slip` · POST `/:id/approve` · `/:id/reject` | Sanction, Admin |
@@ -121,9 +121,10 @@ The Playwright E2E suite passes against the live site (`E2E_BASE_URL=https://lms
 - **Slips** — a private Vercel Blob store (`STORAGE_DRIVER=blob`); staff get presigned GET URLs.
 - **Web** — project `lms-web` with `API_ORIGIN` pointing at the API; `JWT_SECRET` is shared so the route guard can verify sessions.
 
-Known platform limit: Vercel Functions accept request bodies up to **4.5 MB**, so on the live deployment slips
-between 4.5 MB and 5 MB are refused by the platform before reaching the API (locally the full 5 MB works).
-The fix, if needed, is direct-to-storage client uploads with a presigned PUT ([ADR 0002](docs/design/adr/0002-salary-slip-storage.md), option 4).
+Vercel Functions accept request bodies up to 4.5 MB, so slips do not pass through the API there: the browser uploads
+directly to the private Blob store with a short-lived presigned PUT, and the API verifies the stored file
+(size and magic bytes) before recording it. Verified live with a 4.9 MB slip; over 5 MB is refused by storage itself.
+Locally (Docker) slips go through the API as multipart. See [ADR 0002](docs/design/adr/0002-salary-slip-storage.md).
 
 ## Considered, not built
 

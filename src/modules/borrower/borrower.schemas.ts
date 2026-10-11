@@ -54,3 +54,19 @@ export const LoanWithPaymentsDto = LoanDto.extend({ payments: z.array(PaymentDto
 export type ProfileBody = z.infer<typeof ProfileBody>;
 export type ProfileDto = z.infer<typeof ProfileDto>;
 export type ApplyBody = z.infer<typeof ApplyBody>;
+
+export const ConfirmSlipBody = z
+  .object({
+    key: z.string().min(1).max(200),
+    originalName: z.string().trim().max(200).default('salary-slip'),
+  })
+  .meta({ id: 'ConfirmSlipBody' });
+
+export const UploadOptionsDto = z
+  .object({
+    mode: z.enum(['direct', 'server']),
+    maxBytes: z.number(),
+    contentTypes: z.array(z.string()),
+    keyPrefix: z.string(),
+  })
+  .meta({ id: 'UploadOptions' });

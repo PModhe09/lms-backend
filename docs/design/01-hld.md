@@ -6,9 +6,9 @@
 flowchart LR
   B[Borrower browser] -->|HTTPS| W
   E[Executive / Admin browser] -->|HTTPS| W
-  W[Next.js web app<br/>Vercel] -->|rewrite /api/*| A[Express API<br/>Render / container]
+  W[Next.js web app<br/>Vercel] -->|rewrite /api/*| A[Express API<br/>Vercel Function / container]
   A --> M[(MongoDB<br/>Atlas / container)]
-  A -->|put, presign GET| S[(Object storage<br/>R2 or S3 / SeaweedFS)]
+  A -->|put, presign GET| S[(Object storage<br/>Vercel Blob / SeaweedFS)]
   E -->|view slip<br/>presigned GET| S
 ```
 
@@ -53,6 +53,16 @@ Why the rewrite: the browser only ever sees the Vercel origin, so the auth cooki
 4. API uploads the buffer to the bucket under a server-chosen key, saves `{key, mime, size}` on the borrower, and frees the buffer.
    The API disk is never touched.
 
+On the live deployment the API runs as a Vercel Function, which caps request bodies at 4.5 MB, so a 5 MB slip
+cannot pass through it. There the browser uploads straight to the private Blob store instead:
+
+1. `GET /api/borrower/salary-slip/upload-options` → `{mode: 'direct', keyPrefix: 'slips/<userId>/'}`.
+2. `POST /api/borrower/salary-slip/presign` → a 5-minute presigned PUT for one UUID-named path in the caller's folder,
+   capped at 5 MB and PDF/JPG/PNG by the storage service itself.
+3. Browser PUTs the file to storage.
+4. `POST /api/borrower/salary-slip/confirm {key}` → the API reads the stored object's size and first bytes, applies the same
+   checks as step 3 above, deletes the object if it fails, and records it if it passes.
+
 Details and alternatives in `adr/0002`.
 
 ## Why this shape scales
@@ -71,9 +81,9 @@ Details and alternatives in `adr/0002`.
 | | Local (Docker Compose) | Live |
 |---|---|---|
 | Web | `web` container (Next.js standalone) | Vercel |
-| API | `api` container | Render (same Dockerfile) |
+| API | `api` container | Vercel Function (`lms-api` project; `npm run build`, lazy reused Mongo connection) |
 | Mongo | `mongo` container, single-node replica set `rs0` (needed for transactions) | Atlas free tier (replica set by default) |
-| Storage | SeaweedFS container (S3 API), private bucket created by the API at boot in dev | R2 or S3, decided at deploy time |
+| Storage | SeaweedFS container (S3 API), private bucket created by the API at boot in dev | Private Vercel Blob store (`STORAGE_DRIVER=blob`) |
 | Seed | one-shot `seed` container | run once from local against Atlas |
 
-Same code everywhere. Only environment variables change: `MONGO_URI`, `S3_ENDPOINT`, `S3_BUCKET`, keys, `JWT_SECRET`.
+Same code everywhere. Only environment variables change: `MONGO_URI`, `STORAGE_DRIVER` and the S3 settings, `JWT_SECRET`.

@@ -27,7 +27,7 @@ Option 3, with an S3-compatible API everywhere: SeaweedFS in Docker, R2 or S3 li
 
 ## Why 3 over 4
 At this scale (one 5 MB file per borrower) the cost of 4 buys nothing we need. Option 3 keeps the API stateless,
-which was the real goal. Moving to 4 later only changes the upload endpoint and the `FileStorage` adapter.
+which was the real goal. Moving to 4 later only changes the upload endpoint and the `ObjectStorage` adapter.
 The rest of the system (loan snapshot, view URLs, RBAC) stays the same.
 
 ## Risks and how we check them
@@ -43,9 +43,22 @@ The rest of the system (loan snapshot, view URLs, RBAC) stays the same.
 ## Consequences
 - One request, no orphan files, no bucket CORS setup.
 - Local storage does not need to be reachable from the browser for uploads, only for viewing via presigned GET
-  (exposed on `localhost:9000` in Docker).
+  (exposed on `localhost:8333` in Docker).
 
 ## Amendment 2026-10-11: SeaweedFS instead of MinIO locally
 MinIO stopped publishing free container images (`minio/minio` and `quay.io/minio/minio` no longer pull).
 Local Docker now uses SeaweedFS (`chrislusf/seaweedfs`, Apache-2.0) with its S3 gateway.
 The API code is unchanged: it talks to any S3-compatible endpoint through `@aws-sdk/client-s3`.
+
+## Amendment 2026-10-11: live storage and the deploy check
+- **Live storage is a private Vercel Blob store** (`STORAGE_DRIVER=blob`), behind the same `ObjectStorage` port as
+  S3/SeaweedFS. Staff still get 5-minute presigned GET URLs; an unsigned URL returns 403 (verified live).
+- **Deploy check result:** a 4.4 MB upload through the live rewrite got **413**: Vercel caps function request bodies
+  at 4.5 MB, and multipart overhead takes the usable file size to about 4.3 MB. The spec allows 5 MB, so the fallback
+  in "Risks" was taken: **option 4 for the live store only.** The browser asks `POST /borrower/salary-slip/presign`
+  for a 5-minute presigned PUT scoped to one UUID-named path in its own folder, with the 5 MB cap and PDF/JPG/PNG
+  types enforced by the storage service; then `POST /borrower/salary-slip/confirm` makes the API read the stored
+  object's size and magic bytes, delete it if it fails, and record it if it passes. `upload-options` tells the client
+  which path to use, so local Docker and S3 keep option 3 unchanged.
+- Verified live: 4.9 MB uploads and can be viewed by staff; 5 MB + 10 bytes is refused by storage even with a valid
+  URL; a renamed executable is deleted on confirm; other users' folders and non-UUID names are refused.

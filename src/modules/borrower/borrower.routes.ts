@@ -11,6 +11,10 @@ export function borrowerRouter(c: BorrowerController): Router {
   router.get('/profile', c.getProfile);
   router.put('/profile', c.submitProfile);
   router.post('/salary-slip', uploadSlip, c.uploadSlip);
+  // Direct-to-storage path for platforms that cap request bodies below 5 MB (Vercel: 4.5 MB).
+  router.get('/salary-slip/upload-options', c.uploadOptions);
+  router.post('/salary-slip/presign', c.presignSlip);
+  router.post('/salary-slip/confirm', c.confirmSlip);
   router.get('/loans', c.listLoans);
   router.post('/loans', c.apply);
   router.get('/loans/:id', c.getLoan);

@@ -41,8 +41,11 @@ The frontend shows 422 messages to the user as-is; 400 means our own form has a 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
 | GET | `/borrower/profile` | — | 200 profile + stage + slip info | — |
-| PUT | `/borrower/profile` | `{fullName, pan, dob, monthlySalary, employmentMode}` | 200 `{stage: DETAILS_SUBMITTED}` | 422 `BRE_REJECTED` with `details: [{rule: "AGE", message}]`, 409 PAN used by another account |
-| POST | `/borrower/salary-slip` | `multipart/form-data`, field `file` | 200 `{stage: SLIP_UPLOADED, salarySlip: {mime, size, uploadedAt}}` | 422 `INVALID_FILE` (not PDF/JPG/PNG by magic bytes, or > 5 MB), 409 stage too early (BRE not passed) |
+| PUT | `/borrower/profile` | `{fullName, pan, dob, monthlySalaryPaise, employmentMode}` | 200 profile with `onboardingStage: DETAILS_SUBMITTED` and `breResult` | 422 `BRE_REJECTED` with `details: [{rule: "AGE", message}]`, 409 PAN used by another account |
+| POST | `/borrower/salary-slip` | `multipart/form-data`, field `file` | 200 profile with `onboardingStage: SLIP_UPLOADED`, `salarySlip: {mime, size, originalName, uploadedAt}` | 422 `INVALID_FILE` (not PDF/JPG/PNG by magic bytes, or > 5 MB), 409 stage too early (BRE not passed) |
+| GET | `/borrower/salary-slip/upload-options` | — | 200 `{mode: 'direct' \| 'server', maxBytes, contentTypes, keyPrefix}` | — |
+| POST | `/borrower/salary-slip/presign` | storage SDK handshake `{type, payload: {pathname}}` | 200 presigned PUT (5 min, ≤ 5 MB, PDF/JPG/PNG, one path in own folder) | 409 `DIRECT_UPLOAD_UNAVAILABLE` or stage too early, 422 path not allowed |
+| POST | `/borrower/salary-slip/confirm` | `{key, originalName}` | 200 profile with `SLIP_UPLOADED` | 404 not found / not own key, 422 `INVALID_FILE` (object deleted) |
 | GET | `/borrower/loans` | — | 200 list of own loans | — |
 | POST | `/borrower/loans` | `{principalPaise, tenureDays}` | 201 loan (status APPLIED, server-computed interest/total) | 409 `OPEN_LOAN_EXISTS`, 409 stage not SLIP_UPLOADED, 400 out of range |
 | GET | `/borrower/loans/:id` | — | 200 loan + payments | 404 if not own loan |
@@ -75,4 +78,4 @@ Routes are grouped by module so one module = one permission check at the router 
 
 ## Health
 
-`GET /healthz` → 200 `{status: "ok"}` when Mongo is reachable. Docker `HEALTHCHECK` and Render use it.
+`GET /healthz` → 200 `{status: "ok", mongo: true}` when Mongo is reachable, 503 otherwise. The Docker `HEALTHCHECK` uses it.

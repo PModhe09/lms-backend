@@ -2,7 +2,14 @@ import { z } from 'zod';
 import { RuleSetDto } from '../bre/bre.schemas.ts';
 import { LoanDto } from '../loans/loan.dto.ts';
 import { errorResponses, json, registry } from '../../openapi/registry.ts';
-import { ApplyBody, LoanWithPaymentsDto, ProfileBody, ProfileDto } from './borrower.schemas.ts';
+import {
+  ApplyBody,
+  ConfirmSlipBody,
+  LoanWithPaymentsDto,
+  ProfileBody,
+  ProfileDto,
+  UploadOptionsDto,
+} from './borrower.schemas.ts';
 
 const tags = ['borrower'];
 const id = { params: z.object({ id: z.string() }) };
@@ -68,4 +75,35 @@ registry.registerPath({
   summary: 'Own loan with payments (404 if not yours)',
   request: id,
   responses: { 200: { description: 'OK', ...json(LoanWithPaymentsDto) }, ...errorResponses(401, 403, 404) },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/borrower/salary-slip/upload-options',
+  tags,
+  summary: "How to upload: 'direct' (browser → storage via presigned URL) or 'server' (multipart to the API)",
+  responses: { 200: { description: 'OK', ...json(UploadOptionsDto) }, ...errorResponses(401, 403) },
+});
+registry.registerPath({
+  method: 'post',
+  path: '/borrower/salary-slip/presign',
+  tags,
+  summary:
+    'Storage SDK handshake: returns a 5-minute presigned PUT for one pathname under the caller’s folder',
+  request: { body: json(z.object({ type: z.string(), payload: z.record(z.string(), z.unknown()) })) },
+  responses: {
+    200: { description: 'Presigned upload', ...json(z.record(z.string(), z.unknown())) },
+    ...errorResponses(401, 403, 409, 422),
+  },
+});
+registry.registerPath({
+  method: 'post',
+  path: '/borrower/salary-slip/confirm',
+  tags,
+  summary: 'After a direct upload: server checks size and magic bytes of the stored file, then records it',
+  request: { body: json(ConfirmSlipBody) },
+  responses: {
+    200: { description: 'Stored', ...json(ProfileDto) },
+    ...errorResponses(401, 403, 404, 409, 422),
+  },
 });

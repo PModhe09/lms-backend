@@ -111,7 +111,8 @@ must not change if the formula or rounding code changes later.
 ### `amountPaidPaise` is denormalized
 Source of truth = sum of `payments.amountPaise` for the loan. We also keep a running total on the loan so
 the Collection list shows outstanding without aggregating payments for every row.
-Both are written in the same transaction, so they cannot drift. The `loan-math-verifier` agent re-checks it.
+Both are written in the same transaction, so they cannot drift. Tests race two payments on one loan and assert the
+ledger and `amountPaidPaise` still agree (`test/ops.test.ts`, and the live run in `scripts/smoke-live.ts`).
 
 Outstanding is never stored: `outstanding = totalRepaymentPaise − amountPaidPaise`. Storing it would be a
 third number to keep in sync.

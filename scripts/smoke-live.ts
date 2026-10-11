@@ -334,6 +334,94 @@ async function main() {
     expect(r.status === 413 || r.status === 422, `got ${r.status}`);
   });
 
+  const opts = await (await borrower()).get('/api/borrower/salary-slip/upload-options');
+  if (opts.body?.mode === 'direct') {
+    const { uploadPresigned } = await import('@vercel/blob/client');
+    const directUpload = async (c: Client, key: string, buf: Buffer) =>
+      uploadPresigned(key, new Blob([new Uint8Array(buf)], { type: 'application/pdf' }), {
+        access: 'private',
+        contentType: 'application/pdf',
+        handleUploadUrl: `${BASE}/api/borrower/salary-slip/presign`,
+        headers: { cookie: c.cookie },
+      });
+    const prefixOf = async (c: Client) =>
+      (await c.get('/api/borrower/salary-slip/upload-options')).body.keyPrefix as string;
+    const presign = (c: Client, pathname: string) =>
+      c.post('/api/borrower/salary-slip/presign', {
+        type: 'blob.generate-presigned-url',
+        payload: { pathname, multipart: false, clientPayload: null },
+      });
+
+    await check(
+      'direct upload: 4.9 MB slip goes browser → storage, confirm records it, staff can view it',
+      async () => {
+        const { c } = { c: await borrower() };
+        is(await c.put('/api/borrower/profile', profile(n)), 200);
+        const key = `${await prefixOf(c)}${crypto.randomUUID()}.pdf`;
+        await directUpload(c, key, Buffer.concat([PDF, Buffer.alloc(Math.floor(4.9 * 1024 * 1024))]));
+        const r = await c.post('/api/borrower/salary-slip/confirm', { key, originalName: 'big.pdf' });
+        is(r, 200);
+        expect(
+          r.body.salarySlip.size > 4.8 * 1024 * 1024 && r.body.onboardingStage === 'SLIP_UPLOADED',
+          JSON.stringify(r.body.salarySlip),
+        );
+        const loan = await c.post('/api/borrower/loans', { principalPaise: 5_000_000, tenureDays: 30 });
+        is(loan, 201);
+        const view = await S.sanction.get(`/api/ops/sanction/loans/${loan.body.id}/salary-slip`);
+        const file = await fetch(view.body.url);
+        expect(
+          file.status === 200 && Number(file.headers.get('content-length')) > 4.8 * 1024 * 1024,
+          `view ${file.status}`,
+        );
+      },
+    );
+    await check('direct upload: storage refuses more than 5 MB even with a valid presigned URL', async () => {
+      const c = await borrower();
+      is(await c.put('/api/borrower/profile', profile(n)), 200);
+      const key = `${await prefixOf(c)}${crypto.randomUUID()}.pdf`;
+      let refused = false;
+      try {
+        await directUpload(c, key, Buffer.concat([PDF, Buffer.alloc(5 * 1024 * 1024 + 10)]));
+      } catch {
+        refused = true;
+      }
+      expect(refused, 'oversized direct upload was accepted by storage');
+      is(await c.post('/api/borrower/salary-slip/confirm', { key }), 404);
+    });
+    await check('direct upload: non-PDF/JPG/PNG bytes are deleted on confirm (422)', async () => {
+      const c = await borrower();
+      is(await c.put('/api/borrower/profile', profile(n)), 200);
+      const key = `${await prefixOf(c)}${crypto.randomUUID()}.pdf`;
+      await directUpload(c, key, Buffer.from('MZ\x90 not really a pdf'));
+      is(await c.post('/api/borrower/salary-slip/confirm', { key }), 422, 'INVALID_FILE');
+      is(await c.post('/api/borrower/salary-slip/confirm', { key }), 404); // gone
+    });
+    await check(
+      "direct upload: presign refuses other users' folders, odd names, and before eligibility",
+      async () => {
+        const a = await borrower();
+        is(await a.put('/api/borrower/profile', profile(n)), 200);
+        const b = await borrower();
+        is(await b.put('/api/borrower/profile', profile(n)), 200);
+        is(await presign(a, `${await prefixOf(b)}${crypto.randomUUID()}.pdf`), 422);
+        is(await presign(a, `${await prefixOf(a)}../x.pdf`), 422);
+        is(await presign(a, `${await prefixOf(a)}slip.pdf`), 422);
+        const fresh = await borrower();
+        is(await presign(fresh, `${await prefixOf(fresh)}${crypto.randomUUID()}.pdf`), 409);
+        is(
+          await a.post('/api/borrower/salary-slip/presign', { type: 'blob.upload-completed', payload: {} }),
+          400,
+        );
+        is(
+          await a.post('/api/borrower/salary-slip/confirm', {
+            key: `${await prefixOf(b)}${crypto.randomUUID()}.pdf`,
+          }),
+          404,
+        );
+      },
+    );
+  }
+
   console.log('\nApply');
   await check('apply before slip → 409 STAGE_INVALID', async () => {
     const c = await borrower();

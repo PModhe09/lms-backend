@@ -22,7 +22,7 @@ config entry, not code, and there are no Next.js API route handlers or business 
 ```ts
 // lms-frontend/next.config.ts
 async rewrites() {
-  return [{ source: '/api/:path*', destination: `${process.env.API_INTERNAL_URL}/api/:path*` }];
+  return [{ source: '/api/:path*', destination: `${process.env.API_ORIGIN}/api/:path*` }];
 }
 ```
 
@@ -54,5 +54,11 @@ Option A. Local Docker Compose uses the same rewrite (`web` → `http://api:4000
 
 ## Consequences
 - API sets cookies without a `Domain` attribute; the browser scopes them to the web domain.
-- API keeps a strict CORS config (no origins allowed) since browsers never call it directly.
-- Next.js needs `API_INTERNAL_URL` at build/run time, and `JWT_SECRET` for middleware verification.
+- The API sends no CORS headers at all, so browsers on other origins cannot read its responses; browsers only ever call it through the rewrite.
+- Next.js needs `API_ORIGIN` at build/run time, and `JWT_SECRET` for the `proxy.ts` route guard.
+
+## Amendment 2026-10-11: as deployed
+The API runs on Vercel too, as its own project (`lms-api-black.vercel.app`), not on Render. It is still a different
+site from the web app (`lms-web-five-nu.vercel.app`; `vercel.app` is on the Public Suffix List), so option A applies
+unchanged: the browser only talks to the web origin and the cookie is first-party. Verified live: the session cookie
+is `HttpOnly; Secure; SameSite=Lax`, and logins and every module work through the rewrite.
