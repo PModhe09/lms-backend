@@ -2,7 +2,7 @@ import { UnauthenticatedError } from '../../domain/errors.ts';
 import type { UserDocument } from '../../infra/models/user.model.ts';
 import { DUMMY_HASH, hashPassword, verifyPassword } from '../../lib/password.ts';
 import type { AuthUser, LoginBody, SignupBody } from './auth.schemas.ts';
-import type { UserRepository } from './user.repository.ts';
+import type { UserRepository } from '../users/user.repository.ts';
 
 export function toAuthUser(user: UserDocument): AuthUser {
   return {

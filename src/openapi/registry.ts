@@ -27,3 +27,5 @@ export function errorResponses(...statuses: number[]) {
     ]),
   );
 }
+
+export const json = <T>(schema: T) => ({ content: { 'application/json': { schema } } });

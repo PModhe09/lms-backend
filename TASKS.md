@@ -67,65 +67,65 @@ test/                    vitest + supertest + mongodb-memory-server (replica set
 
 ## (b) Personal details + BRE
 
-- [ ] b1. `domain/bre`: rules v1 + generic evaluator + fact derivation (`age` from `dob` and `now` in Asia/Kolkata, PAN uppercased).
-- [ ] b2. Boundary tests: age 22/23/50/51 (birthday today and tomorrow), salary 24,999/25,000, PAN samples, each employment mode, multiple failures returned together.
-- [ ] b3. `GET /api/bre/rules` (BORROWER).
-- [ ] b4. `GET /api/borrower/profile`, `PUT /api/borrower/profile`: run BRE, store `breResult`, stage → `DETAILS_SUBMITTED` or `BRE_REJECTED`; 422 `BRE_REJECTED` with `details[]`; 409 on PAN owned by another account (sparse unique index, E11000 mapped).
-- [ ] b5. PUT after `SLIP_UPLOADED` or `APPLIED`: allowed only before apply. Re-passing BRE keeps stage `SLIP_UPLOADED` if a slip exists. Once a loan is open, 409.
+- [x] b1. `domain/bre`: rules v1 + generic evaluator + fact derivation (`age` from `dob` and `now` in Asia/Kolkata, PAN uppercased).
+- [x] b2. Boundary tests: age 22/23/50/51 (birthday today and tomorrow), salary 24,999/25,000, PAN samples, each employment mode, multiple failures returned together.
+- [x] b3. `GET /api/bre/rules` (BORROWER).
+- [x] b4. `GET /api/borrower/profile`, `PUT /api/borrower/profile`: run BRE, store `breResult`, stage → `DETAILS_SUBMITTED` or `BRE_REJECTED`; 422 `BRE_REJECTED` with `details[]`; 409 on PAN owned by another account (sparse unique index, E11000 mapped).
+- [x] b5. PUT after `SLIP_UPLOADED` or `APPLIED`: allowed only before apply. Re-passing BRE keeps stage `SLIP_UPLOADED` if a slip exists. Once a loan is open, 409.
 
 **AC**: all b2 cases pass; failing PUT stores `breResult.passed=false` and never advances the stage.
 
 ## (c) Salary slip upload
 
-- [ ] c1. `infra/storage.ts`: `putObject`, `presignGet(key, 300s)`. Key = `slips/<userId>/<uuid>.<ext>`, server-chosen.
-- [ ] c2. `middleware/upload.ts`: multer memory storage, `fileSize: 5 MB`, one file field `file`. Over-limit maps to 422 `INVALID_FILE`.
-- [ ] c3. Magic-byte check (`%PDF`, `FF D8 FF`, `89 50 4E 47`); MIME is taken from the bytes, never from the client.
-- [ ] c4. `POST /api/borrower/salary-slip`: stage must be `DETAILS_SUBMITTED` or `SLIP_UPLOADED` (else 409); store `{key, mime, size, originalName, uploadedAt}`; stage → `SLIP_UPLOADED`.
+- [x] c1. `infra/storage.ts`: `putObject`, `presignGet(key, 300s)`. Key = `slips/<userId>/<uuid>.<ext>`, server-chosen.
+- [x] c2. `middleware/upload.ts`: multer memory storage, `fileSize: 5 MB`, one file field `file`. Over-limit maps to 422 `INVALID_FILE`.
+- [x] c3. Magic-byte check (`%PDF`, `FF D8 FF`, `89 50 4E 47`); MIME is taken from the bytes, never from the client.
+- [x] c4. `POST /api/borrower/salary-slip`: stage must be `DETAILS_SUBMITTED` or `SLIP_UPLOADED` (else 409); store `{key, mime, size, originalName, uploadedAt}`; stage → `SLIP_UPLOADED`.
 
 **AC**: a `.pdf`-named PNG is stored as `image/png`; a renamed `.exe` gives 422; a 5 MB + 1 byte file gives 422; tests use an in-memory storage fake behind the same interface.
 
 ## (d) Loan config + apply
 
-- [ ] d1. `domain/money.ts`: `Money` (integer paise, `INR`), `computeSimpleInterest(principalPaise, rateBps, tenureDays)`, rounded once (half-up) at apply. Unit tests including ₹50,000 × 30 days.
-- [ ] d2. `domain/loan/transitions.ts`: `TRANSITIONS` + `assertTransition(from, to, actor)`. Table tests for every allowed and forbidden pair.
-- [ ] d3. `Loan` model + indexes (`{status, createdAt}`, `{borrowerId, createdAt}`, partial unique `{borrowerId}` on open statuses), `statusHistory`.
-- [ ] d4. `POST /api/borrower/loans`: body `{principalPaise, tenureDays}` only (other keys stripped); range checks (400); stage must be `SLIP_UPLOADED` (409); server computes interest and total; slip snapshot; E11000 on the partial index → 409 `OPEN_LOAN_EXISTS`; stage → `APPLIED`.
-- [ ] d5. `GET /api/borrower/loans`, `GET /api/borrower/loans/:id` (own only, else 404; includes payments).
+- [x] d1. `domain/money.ts`: `Money` (integer paise, `INR`), `computeSimpleInterest(principalPaise, rateBps, tenureDays)`, rounded once (half-up) at apply. Unit tests including ₹50,000 × 30 days.
+- [x] d2. `domain/loan/transitions.ts`: `TRANSITIONS` + `assertTransition(from, to, actor)`. Table tests for every allowed and forbidden pair.
+- [x] d3. `Loan` model + indexes (`{status, createdAt}`, `{borrowerId, createdAt}`, partial unique `{borrowerId}` on open statuses), `statusHistory`.
+- [x] d4. `POST /api/borrower/loans`: body `{principalPaise, tenureDays}` only (other keys stripped); range checks (400); stage must be `SLIP_UPLOADED` (409); server computes interest and total; slip snapshot; E11000 on the partial index → 409 `OPEN_LOAN_EXISTS`; stage → `APPLIED`.
+- [x] d5. `GET /api/borrower/loans`, `GET /api/borrower/loans/:id` (own only, else 404; includes payments).
 
 **AC**: client-sent `totalRepaymentPaise` is ignored (test); two concurrent applies give one 201 and one 409 (test); another borrower's loan id gives 404 (test).
 
 ## (e) Sanction
 
-- [ ] e1. `GET /api/ops/sanction/loans` (status APPLIED, paginated, with borrower summary).
-- [ ] e2. `POST .../:id/approve`, `POST .../:id/reject {reason 1..500}`: conditional `findOneAndUpdate` on `status: APPLIED`, push `statusHistory`, 409 `INVALID_STATE` on miss. Reject sets borrower stage → `SLIP_UPLOADED`.
-- [ ] e3. `GET /api/ops/loans/:id`: detail + history + borrower BRE result (any ops read permission).
-- [ ] e4. `GET /api/ops/sanction/loans/:id/salary-slip` → `{url}` presigned GET, 5 min.
+- [x] e1. `GET /api/ops/sanction/loans` (status APPLIED, paginated, with borrower summary).
+- [x] e2. `POST .../:id/approve`, `POST .../:id/reject {reason 1..500}`: conditional `findOneAndUpdate` on `status: APPLIED`, push `statusHistory`, 409 `INVALID_STATE` on miss. Reject sets borrower stage → `SLIP_UPLOADED`.
+- [x] e3. `GET /api/ops/loans/:id`: detail + history + borrower BRE result (any ops read permission).
+- [x] e4. `GET /api/ops/sanction/loans/:id/salary-slip` → `{url}` presigned GET, 5 min.
 
 **AC**: approve then reject on the same loan → second call 409; SALES token → 403; DISBURSEMENT token on approve → 403.
 
 ## (f) Disbursement
 
-- [ ] f1. `GET /api/ops/disbursement/loans` (SANCTIONED), `POST .../:id/disburse` (conditional update, `disbursedAt`, `disbursedBy`).
+- [x] f1. `GET /api/ops/disbursement/loans` (SANCTIONED), `POST .../:id/disburse` (conditional update, `disbursedAt`, `disbursedBy`).
 
 **AC**: disbursing an APPLIED loan → 409.
 
 ## (g) Collection + auto-close
 
-- [ ] g1. `Payment` model: `{loanId, utr unique, amountPaise, paidAt, recordedBy}`, index `{loanId, paidAt}`.
-- [ ] g2. `GET /api/ops/collection/loans` (DISBURSED, with `outstandingPaise`), `GET .../:id/payments`.
-- [ ] g3. `POST .../:id/payments`: `session.withTransaction` per `03-loan-state-machine.md`. 409 `DUPLICATE_UTR`, 422 `OVERPAYMENT`, 422 `INVALID_PAYMENT_DATE`, 409 if not DISBURSED. Auto-close to CLOSED by SYSTEM when paid equals total; borrower stage → `SLIP_UPLOADED`.
+- [x] g1. `Payment` model: `{loanId, utr unique, amountPaise, paidAt, recordedBy}`, index `{loanId, paidAt}`.
+- [x] g2. `GET /api/ops/collection/loans` (DISBURSED, with `outstandingPaise`), `GET .../:id/payments`.
+- [x] g3. `POST .../:id/payments`: `session.withTransaction` per `03-loan-state-machine.md`. 409 `DUPLICATE_UTR`, 422 `OVERPAYMENT`, 422 `INVALID_PAYMENT_DATE`, 409 if not DISBURSED. Auto-close to CLOSED by SYSTEM when paid equals total; borrower stage → `SLIP_UPLOADED`.
 
 **AC**: partial then final payment closes the loan; duplicate UTR on a different loan → 409; two concurrent ₹10,000 payments on ₹15,000 outstanding → one 201 and one 422 (test on a replica set memory server).
 
 ## (h) Sales leads
 
-- [ ] h1. `GET /api/ops/sales/leads?stage=`: borrowers whose stage is not `APPLIED`, newest first, with stage and BRE failures.
+- [x] h1. `GET /api/ops/sales/leads?stage=`: borrowers whose stage is not `APPLIED`, newest first, with stage and BRE failures.
 
 **AC**: a borrower with an APPLIED loan is not a lead; after rejection they are a lead again.
 
 ## (i) Admin view
 
-- [ ] i1. ADMIN already holds every ops permission. Add an `rbac-matrix` test: every ops route × every role → the expected 200/201/403.
+- [x] i1. ADMIN already holds every ops permission. Add an `rbac-matrix` test: every ops route × every role → the expected 200/201/403.
 
 **AC**: the matrix test passes and is the proof cited in the README.
 

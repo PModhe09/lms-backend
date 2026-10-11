@@ -15,7 +15,11 @@ Object.assign(process.env, {
 beforeAll(async () => {
   const { connectMongo } = await import('../src/infra/mongo.ts');
   // Register every model before syncing indexes.
-  await import('../src/app.ts');
+  await Promise.all([
+    import('../src/infra/models/user.model.ts'),
+    import('../src/infra/models/loan.model.ts'),
+    import('../src/infra/models/payment.model.ts'),
+  ]);
   await connectMongo(process.env.MONGO_URI!);
 });
 

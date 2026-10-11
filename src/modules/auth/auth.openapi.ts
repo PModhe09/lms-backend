@@ -1,7 +1,5 @@
-import { registry, errorResponses } from '../../openapi/registry.ts';
+import { errorResponses, json, registry } from '../../openapi/registry.ts';
 import { AuthUser, LoginBody, SignupBody } from './auth.schemas.ts';
-
-const json = <T>(schema: T) => ({ content: { 'application/json': { schema } } });
 
 registry.registerPath({
   method: 'post',

@@ -3,6 +3,8 @@ import { registry } from './registry.ts';
 // Each module registers its paths on import.
 import '../modules/auth/auth.openapi.ts';
 import '../modules/health/health.openapi.ts';
+import '../modules/borrower/borrower.openapi.ts';
+import '../modules/ops/ops.openapi.ts';
 
 export function buildOpenApiDocument() {
   return new OpenApiGeneratorV31(registry.definitions).generateDocument({

@@ -2,11 +2,17 @@ import mongoose from 'mongoose';
 import { createApp } from './app.ts';
 import { env } from './config/env.ts';
 import { connectMongo } from './infra/mongo.ts';
+import { S3Storage } from './infra/storage.ts';
 import { logger } from './lib/logger.ts';
 
 async function main() {
   await connectMongo(env.MONGO_URI);
-  const server = createApp().listen(env.PORT, () => logger.info({ port: env.PORT }, 'api listening'));
+  const storage = new S3Storage(env);
+  if (env.S3_AUTO_CREATE_BUCKET) await storage.ensureBucket();
+
+  const server = createApp({ storage }).listen(env.PORT, () =>
+    logger.info({ port: env.PORT }, 'api listening'),
+  );
 
   const shutdown = (signal: string) => {
     logger.info({ signal }, 'shutting down');

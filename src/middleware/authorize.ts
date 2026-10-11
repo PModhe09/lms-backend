@@ -11,3 +11,13 @@ export const authorize =
     if (!permissions.every((p) => hasPermission(role, p))) throw new ForbiddenError();
     next();
   };
+
+/** 403 unless the caller's role holds at least one of the listed permissions. */
+export const authorizeAny =
+  (...permissions: Permission[]): RequestHandler =>
+  (req, _res, next) => {
+    if (!req.user) throw new UnauthenticatedError();
+    const { role } = req.user;
+    if (!permissions.some((p) => hasPermission(role, p))) throw new ForbiddenError();
+    next();
+  };
