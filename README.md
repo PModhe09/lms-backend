@@ -78,7 +78,17 @@ Browser ──► Next.js (Vercel) ──rewrite /api/*──► Express API ─
 - **Errors:** one envelope everywhere: `{ error: { code, message, details }, requestId }`. 400 schema, 401 not logged in, 403 wrong role, 404 not found/not yours, 409 state conflict, 422 business rule.
 - **API contract:** Zod schemas → OpenAPI 3.1 (`openapi.json`, also served at `/api/openapi.json`) → frontend types via `openapi-typescript`.
 
-## API
+## Where salary slips are stored
+
+| | Files (PDF/JPG/PNG) | What MongoDB keeps |
+|---|---|---|
+| Live | Private **Vercel Blob** store `lms-salary-slips` (region `bom1`), attached to the `lms-api` project | Pointer only: `{ key, mime, size, originalName, uploadedAt }` on the user, copied onto the loan at apply time |
+| Local Docker | **SeaweedFS** (S3-compatible) bucket `lms-salary-slips`, Docker volume `storage-data` | Same |
+
+- Files never touch the API server's disk (multer keeps them in memory; on Vercel they skip the API entirely) and are never stored in MongoDB.
+- Object keys are chosen by the server: `slips/<userId>/<uuid>.<ext>`. The user's file name is kept only as display metadata.
+- The store is private: a bare object URL returns 403. Sanction and Admin view a slip through a 5-minute presigned URL from `GET /api/ops/sanction/loans/:id/salary-slip`.
+
 
 | Method | Path | Who |
 |---|---|---|
