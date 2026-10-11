@@ -4,6 +4,8 @@ Express + TypeScript + MongoDB API for a small-ticket personal loan product: a *
 (sign up → personal details + eligibility → salary slip → choose amount/tenure → apply) and an
 **operations dashboard** (Sales, Sanction, Disbursement, Collection; Admin sees all) with RBAC enforced on every route.
 
+**Live:** https://lms-web-five-nu.vercel.app (API: https://lms-api-black.vercel.app/api/healthz) — log in with the demo accounts below.
+
 Frontend: [lms-frontend](https://github.com/PModhe09/lms-frontend) · Design docs: [`docs/design`](docs/design/README.md)
 
 ## Run it locally (one command)
@@ -99,7 +101,8 @@ See [`.env.example`](.env.example). The process validates its environment with Z
 
 ## Deployment (live)
 
-Both apps run on Vercel (region `bom1`):
+Both apps run on Vercel (region `bom1`): web at https://lms-web-five-nu.vercel.app, API at https://lms-api-black.vercel.app.
+The Playwright E2E suite passes against the live site (`E2E_BASE_URL=https://lms-web-five-nu.vercel.app npm run test:e2e` in the frontend).
 
 - **API** — project `lms-api`. Vercel runs `npm run build` (tsc) and serves `index.js` → `dist/index.js` as one Fluid-compute function; the Mongo connection is opened lazily and reused across invocations.
 - **Database** — MongoDB Atlas (replica set by default, so transactions work). `MONGO_URI` is a project env var.
